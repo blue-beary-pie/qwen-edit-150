@@ -15,6 +15,21 @@
 *   **静态文件服务**：生成的图像可以通过 API 提供的 URL 直接访问。
 *   **灵活的图像输入**：支持通过 URL 或本地文件路径提供输入图像。
 
+## 目录结构
+
+```text
+comfyui_api/
+├── api_service.py      # FastAPI 服务入口，负责任务分发和监控
+├── worker.py           # Worker 进程逻辑，负责在特定 GPU 上执行 ComfyUI 推理
+├── ComfyUI/            # ComfyUI 核心库 (已在 .gitignore 中忽略，需自行部署)
+│   ├── main.py         # ComfyUI 入口
+│   ├── models/         # 模型存放目录
+│   └── output/         # 生成图像存放目录
+├── .gitignore          # 忽略 ComfyUI 及缓存文件
+├── README.md           # 项目说明文档
+└── 需求prompt历史.txt    # 需求变更历史记录
+```
+
 ## 设置
 
 ### 1. 克隆 ComfyUI
