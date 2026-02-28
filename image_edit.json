@@ -1,0 +1,154 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "Qwen-Rapid-AIO-SFW-v23.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Checkpoint加载器（简易）"
+    }
+  },
+  "2": {
+    "inputs": {
+      "seed": 673266371007906,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "k_sampler"
+    }
+  },
+  "3": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "1",
+        1
+      ],
+      "vae": [
+        "1",
+        2
+      ],
+      "image1": [
+        "10",
+        0
+      ],
+      "image2": [
+        "23",
+        0
+      ],
+      "image3": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "prompt"
+    }
+  },
+  "4": {
+    "inputs": {
+      "prompt": "",
+      "clip": [
+        "1",
+        1
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus Negative (leave blank)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "samples": [
+        "2",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "9": {
+    "inputs": {
+      "width": 1280,
+      "height": 720,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "size"
+    }
+  },
+  "10": {
+    "inputs": {
+      "image": "1572c331225695e87b75273e7dccfa05.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "image1"
+    }
+  },
+  "13": {
+    "inputs": {
+      "filename_prefix": "storyvideo",
+      "images": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "image_output"
+    }
+  },
+  "23": {
+    "inputs": {
+      "image": "招财猫.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "image2"
+    }
+  },
+  "24": {
+    "inputs": {
+      "image": "9e27c8f5-b374-4ec4-9d3b-2b91d78bdb7137837011.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "image3"
+    }
+  }
+}

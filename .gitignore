@@ -1,0 +1,28 @@
+# Ignore ComfyUI directory
+ComfyUI/
+
+# Ignore Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Ignore logs
+*.log
+*.prev.log
+*.prev2.log
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore output images if any are in root
+*.png
+*.jpg
+*.jpeg
+*.webp

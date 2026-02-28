@@ -1,0 +1,35 @@
+# 第一次更新
+comfyui的启动方式(comfy) zdx@bm-cn-huhehaote2-ix-ey8vsp1i:/mnt/data0/gyb/comfyui_api/ComfyUI$ python main.py --listen 0.0.0.0 --port 18001
+将/mnt/data0/gyb/comfyui_api/image_edit.json从comfyui分离出来成为一个独立服务api
+# 第二次更新
+兼容openai格式,
+请求体:
+{
+    "image1":"https://imgloc.com/image/yil12C",
+    "prompt": "人物手部动作自然大方，绿色背景保持稳定不变色，优化画面清晰度",
+    "steps":4,
+    "width":1280,
+    "height":720
+}
+备注:
+    "width":1280,
+    "height":720
+这两个参数没有传递时候自动识别图像尺寸大小来决定传出图像的尺寸,
+你自己直接用python重构,模型在
+/mnt/data0/gyb/comfyui_api/ComfyUI/models/checkpoints/Qwen-Rapid-AIO-SFW-v23.safetensors
+不要依赖comfyui的启动
+# 第三次更新
+返回图片url
+# 第四次更新
+支持在cuda3,4,5,6,7上实现五并发,并且模型热加载,并且优化代码
+# 第五次更新
+"seed":字段不需要传入,需要自动生成随机数,不能一样.
+# 第六次更新
+1.接受任务后能自动分发给空闲的cuda,
+2.增加异常处理机制,如果其中某一cuda显存oom了,重新启动该cuda服务,并且把他的任务转让给其他cuda.
+# 第七次更新
+问两个问题
+1.比如说传进来50个任务,你能给他们排队吗,
+2.任务请求和结果能保证一致吗
+# 第八次更新
+效率好低,模型热加载为什么还要24s,不能5s吗
