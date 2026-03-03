@@ -141,115 +141,118 @@ def run_worker(gpu_id, input_queue, output_queue, comfy_path):
                 
                 start_time = time.time()
                 
-                # Unpack params
-                image_data = params['image_data'] # Bytes
-                prompt = params['prompt']
-                steps = params['steps']
-                width = params['width']
-                height = params['height']
-                seed = params['seed']
-                cfg = params['cfg']
-                sampler_name = params['sampler_name']
-                scheduler = params['scheduler']
-                
-                # Process Image
-                img_comfy = None
-                if image_data:
-                    img = Image.open(io.BytesIO(image_data)).convert("RGB")
-                    orig_width, orig_height = img.size
+                # 推理过程中禁用梯度计算，节省内存并避免 numpy 转换错误
+                with torch.no_grad():
+                    # Unpack params
+                    image_data = params['image_data'] # Bytes
+                    prompt = params['prompt']
+                    steps = params['steps']
+                    width = params['width']
+                    height = params['height']
+                    seed = params['seed']
+                    cfg = params['cfg']
+                    sampler_name = params['sampler_name']
+                    scheduler = params['scheduler']
                     
-                    # Determine target dimensions
-                    target_width = width or orig_width
-                    target_height = height or orig_height
+                    # Process Image
+                    img_comfy = None
+                    if image_data:
+                        img = Image.open(io.BytesIO(image_data)).convert("RGB")
+                        orig_width, orig_height = img.size
+                        
+                        # Determine target dimensions
+                        target_width = width or orig_width
+                        target_height = height or orig_height
+                        
+                        # Convert to tensor
+                        img_np = np.array(img).astype(np.float32) / 255.0
+                        img_comfy = torch.from_numpy(img_np)[None,]
+                    else:
+                        # Default dimensions if no image provided
+                        target_width = width or 1024
+                        target_height = height or 1024
                     
-                    # Convert to tensor
-                    img_np = np.array(img).astype(np.float32) / 255.0
-                    img_comfy = torch.from_numpy(img_np)[None,]
-                else:
-                    # Default dimensions if no image provided
-                    target_width = width or 1024
-                    target_height = height or 1024
-                
-                # Ensure dimensions are multiples of 8
-                target_width = (target_width // 8) * 8
-                target_height = (target_height // 8) * 8
-                
-                # Execution
-                # Positive Prompt
-                exec_kwargs = {
-                    "clip": clip,
-                    "prompt": prompt,
-                    "vae": vae
-                }
-                if img_comfy is not None:
-                    exec_kwargs["image1"] = img_comfy
-                
-                pos_res = TextEncodeQwenImageEditPlus.execute(**exec_kwargs)
-                positive = pos_res.result
-                
-                # Negative Prompt
-                neg_res = TextEncodeQwenImageEditPlus.execute(
-                    clip=clip, 
-                    prompt="", 
-                    vae=vae
-                )
-                negative = neg_res.result
-                
-                # Format conditioning
-                if isinstance(positive, tuple) and len(positive) > 0: positive = positive[0]
-                if isinstance(negative, tuple) and len(negative) > 0: negative = negative[0]
-                if not isinstance(positive, list): positive = [positive]
-                if not isinstance(negative, list): negative = [negative]
-                
-                # Empty Latent
-                latent_res = empty_latent_node.generate(
-                    width=target_width, 
-                    height=target_height, 
-                    batch_size=1
-                )
-                latent = latent_res[0]
-                
-                # KSampler
-                actual_seed = seed if (seed is not None and seed != -1) else 42
-                if actual_seed > 0xffffffffffffffff:
-                    actual_seed = actual_seed % 0xffffffffffffffff
-                
-                samples_res = sampler_node.sample(
-                    model=model,
-                    seed=actual_seed,
-                    steps=steps,
-                    cfg=cfg,
-                    sampler_name=sampler_name,
-                    scheduler=scheduler,
-                    positive=positive,
-                    negative=negative,
-                    latent_image=latent,
-                    denoise=1.0
-                )
-                samples = samples_res[0]
-                
-                # VAE Decode
-                image_res = vae_decode_node.decode(
-                    samples=samples, 
-                    vae=vae
-                )
-                output_images = image_res[0]
-                
-                # Convert to bytes
-                img_np = (output_images.squeeze().cpu().numpy() * 255).astype(np.uint8)
-                output_pil = Image.fromarray(img_np)
-                
-                out_byte_arr = io.BytesIO()
-                output_pil.save(out_byte_arr, format='PNG')
-                result_bytes = out_byte_arr.getvalue()
-                
-                # Send result
-                output_queue.put((request_id, {'status': 'success', 'data': result_bytes}))
-                
-                print(f"Worker {os.getpid()}: Finished request {request_id} in {time.time() - start_time:.2f}s")
-                
-                # Clear cache after each request to prevent fragmentation
-                torch.cuda.empty_cache()
+                    # Ensure dimensions are multiples of 8
+                    target_width = (target_width // 8) * 8
+                    target_height = (target_height // 8) * 8
+                    
+                    # Execution
+                    # Positive Prompt
+                    exec_kwargs = {
+                        "clip": clip,
+                        "prompt": prompt,
+                        "vae": vae
+                    }
+                    if img_comfy is not None:
+                        exec_kwargs["image1"] = img_comfy
+                    
+                    pos_res = TextEncodeQwenImageEditPlus.execute(**exec_kwargs)
+                    positive = pos_res.result
+                    
+                    # Negative Prompt
+                    neg_res = TextEncodeQwenImageEditPlus.execute(
+                        clip=clip, 
+                        prompt="", 
+                        vae=vae
+                    )
+                    negative = neg_res.result
+                    
+                    # Format conditioning
+                    if isinstance(positive, tuple) and len(positive) > 0: positive = positive[0]
+                    if isinstance(negative, tuple) and len(negative) > 0: negative = negative[0]
+                    if not isinstance(positive, list): positive = [positive]
+                    if not isinstance(negative, list): negative = [negative]
+                    
+                    # Empty Latent
+                    latent_res = empty_latent_node.generate(
+                        width=target_width, 
+                        height=target_height, 
+                        batch_size=1
+                    )
+                    latent = latent_res[0]
+                    
+                    # KSampler
+                    actual_seed = seed if (seed is not None and seed != -1) else 42
+                    if actual_seed > 0xffffffffffffffff:
+                        actual_seed = actual_seed % 0xffffffffffffffff
+                    
+                    samples_res = sampler_node.sample(
+                        model=model,
+                        seed=actual_seed,
+                        steps=steps,
+                        cfg=cfg,
+                        sampler_name=sampler_name,
+                        scheduler=scheduler,
+                        positive=positive,
+                        negative=negative,
+                        latent_image=latent,
+                        denoise=1.0
+                    )
+                    samples = samples_res[0]
+                    
+                    # VAE Decode
+                    image_res = vae_decode_node.decode(
+                        samples=samples, 
+                        vae=vae
+                    )
+                    output_images = image_res[0]
+                    
+                    # Convert to bytes
+                    # 使用 .detach() 确保 tensor 不带梯度，从而可以安全转换为 numpy
+                    img_np = (output_images.squeeze().detach().cpu().numpy() * 255).astype(np.uint8)
+                    output_pil = Image.fromarray(img_np)
+                    
+                    out_byte_arr = io.BytesIO()
+                    output_pil.save(out_byte_arr, format='PNG')
+                    result_bytes = out_byte_arr.getvalue()
+                    
+                    # Send result
+                    output_queue.put((request_id, {'status': 'success', 'data': result_bytes}))
+                    
+                    print(f"Worker {os.getpid()}: Finished request {request_id} in {time.time() - start_time:.2f}s")
+                    
+                    # Clear cache after each request to prevent fragmentation
+                    torch.cuda.empty_cache()
                 
             except Exception as e:
                 import traceback

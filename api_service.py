@@ -16,6 +16,10 @@ import random
 import uvicorn
 import logging
 from PIL import Image
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 # 从 worker.py 导入 worker 进程函数
 from worker import run_worker as worker_process
@@ -27,7 +31,7 @@ logger = logging.getLogger("ComfyUI-API")
 # --- 主应用程序配置 ---
 
 # ComfyUI 的安装路径
-COMFY_PATH = "/mnt/data0/gyb/comfyui_api/ComfyUI"
+COMFY_PATH = "/mnt/data0/AIGC/story/comfyui_main"
 # ComfyUI 输出图像的目录
 OUTPUT_DIR = os.path.join(COMFY_PATH, "output")
 # 如果输出目录不存在，则创建它
@@ -51,23 +55,27 @@ class ImageEditRequest(BaseModel):
     sampler_name: Optional[str] = "euler_ancestral"  # 采样器名称，可选，默认为 "euler_ancestral"
     scheduler: Optional[str] = "beta"  # 调度器名称，可选，默认为 "beta"
 
+# --- GPU 配置从 .env 获取 ---
+# 默认配置为 0:1,1:2,2:2
+gpu_config_str = os.getenv("GPU_CONCURRENCY_CONFIG", "0:1,1:2,2:2")
+GPUS = []
+try:
+    # 解析 "0:1,1:2,2:2" 格式为 [0, 1, 1, 2, 2]
+    for part in gpu_config_str.split(","):
+        if ":" in part:
+            gpu_id, count = part.split(":")
+            GPUS.extend([int(gpu_id)] * int(count))
+except Exception as e:
+    logger.error(f"Failed to parse GPU_CONCURRENCY_CONFIG '{gpu_config_str}': {e}. Falling back to default.")
+    GPUS = [0, 1, 1, 2, 2]
+
+logger.info(f"Final GPU configuration: {GPUS}")
+
 # 用于进程管理的全局变量
 input_queue = None  # 输入队列，用于向 worker 进程发送任务
 output_queue = None  # 输出队列，用于从 worker 进程接收结果
-workers = {}  # 修改为字典: {gpu_id: Process}
+workers = {}  # 修改为字典: {worker_idx: Process}
 response_futures = {}  # 存储每个请求的 asyncio.Future 对象，用于异步等待结果
-
-# --- GPU 配置从环境变量获取 ---
-# 默认使用 1-7 号卡。支持格式: "cu1,cu2,cu3" 或 "1,2,3"
-gpu_env = os.getenv("USE_GPUS", "1,2,3,4,5,6,7")
-try:
-    # 提取数字部分，例如 "cu3" -> 3, "4" -> 4
-    GPUS = [int(''.join(filter(str.isdigit, g.strip()))) for g in gpu_env.split(",") if g.strip()]
-    if not GPUS:
-        raise ValueError("No valid GPU IDs found in USE_GPUS")
-except Exception as e:
-    logger.error(f"Failed to parse USE_GPUS env '{gpu_env}': {e}. Falling back to default [1-7]")
-    GPUS = [1, 2, 3, 4, 5, 6, 7]
 
 # 存储待处理任务的数据，用于 OOM 重试
 pending_tasks = {} 
@@ -90,43 +98,50 @@ async def startup_event():
     input_queue = multiprocessing.Queue()  # 任务输入队列
     output_queue = multiprocessing.Queue() # 结果输出队列
     
-    logger.info(f"Starting workers on GPUs: {GPUS}")
-    # 为每个指定的 GPU 启动一个 worker 进程
-    for gpu_id in GPUS:
-        start_worker(gpu_id)
+    logger.info(f"Starting workers for configuration: {GPUS}")
+    # 为每个配置的 GPU 启动对应的 worker 进程
+    for i, gpu_id in enumerate(GPUS):
+        start_worker(i, gpu_id)
+        # 增加启动延迟，避免 IO 瞬间激增导致服务器卡死
+        if i < len(GPUS) - 1:
+            logger.info(f"Waiting 15 seconds before starting next worker to reduce IO burst...")
+            await asyncio.sleep(15)
     
     # 启动结果收集器作为后台任务
     asyncio.create_task(result_collector())
     # 启动进程监控器
     asyncio.create_task(worker_monitor())
 
-def start_worker(gpu_id):
-    """启动或重启指定 GPU 的 worker 进程"""
+def start_worker(worker_idx, gpu_id):
+    """启动或重启指定的 worker 进程"""
     global workers
-    if gpu_id in workers and workers[gpu_id].is_alive():
-        logger.info(f"Worker on GPU {gpu_id} is already running.")
+    if worker_idx in workers and workers[worker_idx].is_alive():
+        logger.info(f"Worker {worker_idx} on GPU {gpu_id} is already running.")
         return
 
-    logger.info(f"Starting/Restarting worker on GPU {gpu_id}...")
+    logger.info(f"Starting/Restarting worker {worker_idx} on GPU {gpu_id}...")
     p = multiprocessing.Process(
         target=worker_process,
         args=(gpu_id, input_queue, output_queue, COMFY_PATH),
-        name=f"Worker-GPU-{gpu_id}"
+        name=f"Worker-{worker_idx}-GPU-{gpu_id}"
     )
     p.start()
-    workers[gpu_id] = p
+    workers[worker_idx] = p
 
 async def worker_monitor():
     """后台监控 worker 进程状态，异常退出时自动重启"""
     while True:
         try:
-            for gpu_id in GPUS:
-                if gpu_id not in workers or not workers[gpu_id].is_alive():
-                    logger.warning(f"Worker on GPU {gpu_id} is dead. Restarting...")
-                    start_worker(gpu_id)
+            for i, gpu_id in enumerate(GPUS):
+                if i not in workers or not workers[i].is_alive():
+                    logger.warning(f"Worker {i} on GPU {gpu_id} is dead. Restarting...")
+                    start_worker(i, gpu_id)
+                    # 重启后增加延迟，避免多个 worker 同时重启导致 IO 激增
+                    logger.info(f"Waiting 15 seconds after restart...")
+                    await asyncio.sleep(15)
         except Exception as e:
             logger.error(f"Worker monitor error: {e}")
-        await asyncio.sleep(5) # 每 5 秒检查一次
+        await asyncio.sleep(5) # 每 5 秒检查一次状态
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -136,10 +151,10 @@ async def shutdown_event():
     """
     logger.info("Shutting down workers...")
     # 向每个 worker 进程发送 None 信号，表示终止
-    for _ in GPUS:
+    for _ in range(len(GPUS)):
         input_queue.put(None)
     # 等待所有 worker 进程完成
-    for gpu_id, p in workers.items():
+    for worker_idx, p in workers.items():
         p.join()
 
 async def result_collector():
@@ -184,6 +199,10 @@ def download_image(url):
     支持 HTTP/HTTPS URL 和本地文件路径。
     """
     try:
+        # 预处理 URL：去除可能存在的首尾空格和引号
+        if isinstance(url, str):
+            url = url.strip().strip('`').strip('"').strip("'")
+            
         if url.startswith("http"):
             # 如果是 HTTP/HTTPS URL，则使用 requests 下载
             headers = {

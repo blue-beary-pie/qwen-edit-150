@@ -1,145 +1,105 @@
-# ComfyUI 图像编辑 API (多 GPU)
+# ComfyUI 图像编辑 API (多 GPU 并行版)
 
 ## 项目概述
 
-这是一个基于 FastAPI 构建的图像编辑 API 服务，它利用 ComfyUI 的强大功能在多个 GPU 上并行处理图像编辑任务。该服务旨在提供一个高效、可扩展的接口，用于通过 API 请求执行图像生成和编辑操作。
+本项目是一个基于 FastAPI 构建的高性能图像编辑 API 服务。它集成了 ComfyUI 核心功能，通过多进程架构实现在多个 GPU 上的并行推理。该服务专门针对大规模并发请求进行了优化，支持动态任务分发、自动显存管理及故障恢复。
 
-## 特性
+## 核心特性
 
-*   **多 GPU 支持**：通过多进程架构，将图像编辑任务分发到多个 GPU 上并行执行，提高处理吞吐量。
-*   **自动分发**：任务会自动分发到空闲的 CUDA 设备上处理。
-*   **异常处理与自动重启**：监控 worker 进程状态。如果某个 GPU 发生显存溢出 (OOM) 或异常退出，系统会自动重启该 GPU 的服务，并将失败的任务重新分发给其他可用的 GPU。
-*   **异步处理**：利用 FastAPI 的异步能力和 `asyncio`，实现非阻塞的请求处理和结果收集。
-*   **任务队列**：使用 `multiprocessing.Queue` 实现主进程与 worker 进程之间的任务分发和结果回收。
-*   **ComfyUI 集成**：利用 ComfyUI 进行实际的图像生成和编辑操作。
-*   **静态文件服务**：生成的图像可以通过 API 提供的 URL 直接访问。
-*   **灵活的图像输入**：支持通过 URL 或本地文件路径提供输入图像。
+*   **多 GPU 高并发**：支持在多个 CUDA 设备上运行多个独立 worker 进程。
+*   **灵活配置**：通过 `.env` 文件轻松配置每个 GPU 的并发 worker 数量。
+*   **智能任务分发**：主进程自动将任务推送到任务队列，由空闲的 worker 竞争处理。
+*   **异常恢复机制**：
+    *   监控 worker 进程状态，异常退出或显存溢出 (OOM) 时自动重启。
+    *   失败的任务会自动重新排队处理。
+*   **推理优化**：
+    *   **启动延迟**：每个 worker 启动间隔 15 秒，避免瞬间 IO 激增卡死服务器。
+    *   **显存优化**：使用 `torch.no_grad()` 和 `expandable_segments` 降低内存开销。
+    *   **模型热加载**：模型加载后常驻显存，响应速度快。
+*   **强大的 URL 兼容性**：自动处理包含空格或特殊字符的图像 URL。
 
 ## 目录结构
 
 ```text
-comfyui_api/
-├── api_service.py      # FastAPI 服务入口，负责任务分发和监控
-├── worker.py           # Worker 进程逻辑，负责在特定 GPU 上执行 ComfyUI 推理
-├── ComfyUI/            # ComfyUI 核心库 (已在 .gitignore 中忽略，需自行部署)
-│   ├── main.py         # ComfyUI 入口
-│   ├── models/         # 模型存放目录
-│   └── output/         # 生成图像存放目录
-├── .gitignore          # 忽略 ComfyUI 及缓存文件
-├── README.md           # 项目说明文档
-└── 需求prompt历史.txt    # 需求变更历史记录
+/mnt/data0/AIGC/qwen-edit-248/
+├── api_service.py      # FastAPI 主服务，负责 API 路由、任务分发与进程监控
+├── worker.py           # Worker 进程逻辑，执行 ComfyUI 推理
+├── .env                # 配置文件（GPU 并发数等）
+├── requirements.txt    # 项目依赖
+├── README.md           # 本文档
+└── 需求prompt历史.txt    # 历史需求变更记录
 ```
 
-## 设置
+## 安装与配置
 
-### 1. 克隆 ComfyUI
-
-确保您已将 ComfyUI 克隆到项目根目录下的 `ComfyUI` 文件夹中。
-
-```bash
-git clone https://github.com/comfyanonymous/ComfyUI.git ComfyUI
-```
+### 1. 确认 ComfyUI 路径
+服务默认使用以下路径的 ComfyUI：
+`/mnt/data0/AIGC/story/comfyui_main`
 
 ### 2. 安装依赖
-
 ```bash
-pip install -r requirements.txt # 假设存在一个 requirements.txt 文件，包含 FastAPI, uvicorn, requests, Pillow 等
-pip install fastapi uvicorn requests Pillow
+pip install -r requirements.txt
 ```
 
-### 3. 配置 ComfyUI
-
-确保您的 ComfyUI 环境已正确配置，并且所有必要的模型和自定义节点已安装。
-
-### 4. GPU 配置
-
-您可以通过环境变量 `USE_GPUS` 来指定要使用的 GPU ID，支持多种格式。默认使用 `1,2,3,4,5,6,7`。
-
-```bash
-# 使用 1, 2, 3 号卡
-export USE_GPUS="1,2,3"
-# 或者使用带 cu 前缀的格式
-export USE_GPUS="cu3,cu4,cu5"
-# 启动服务
-python api_service.py
+### 3. 配置 GPU 并发
+编辑 `.env` 文件：
+```ini
+# 格式：GPU_ID:并发数,GPU_ID:并发数
+# 示例：GPU 0 跑 1 个，GPU 1 跑 2 个，GPU 2 跑 2 个
+GPU_CONCURRENCY_CONFIG=0:1,1:2,2:2
 ```
 
 ## 运行服务
 
 ```bash
+# 默认端口 18002
 python api_service.py
 ```
 
-服务将在 `http://0.0.0.0:18002` 上启动。
+## API 使用说明
 
-## API 端点
+### 图像编辑接口
 
-### `POST /image-edit`
+*   **URL**: `POST /image-edit`
+*   **Content-Type**: `application/json`
 
-处理图像编辑请求。
+#### 请求参数 (JSON)
 
-**请求体 (JSON)**:
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `image1` | `string` | 否 | `null` | 输入图像的 URL 或本地绝对路径 |
+| `prompt` | `string` | 是 | - | 图像生成或编辑的提示词 |
+| `steps` | `int` | 否 | `4` | 扩散步数 |
+| `width` | `int` | 否 | `null` | 输出图像宽度（不传则自动识别） |
+| `height` | `int` | 否 | `null` | 输出图像高度（不传则自动识别） |
+| `seed` | `int` | 否 | 随机 | 随机种子 |
+| `cfg` | `float` | 否 | `1.0` | 引导比例 |
+| `sampler_name`| `string` | 否 | `euler_ancestral`| 采样器名称 |
+| `scheduler` | `string` | 否 | `beta` | 调度器名称 |
 
-```json
-{
-    "image1": "string",         // 可选：输入图像的 URL 或本地文件路径。如果不提供，将进行纯文本生成。
-    "prompt": "string",         // 必填：图像生成或编辑的提示词
-    "steps": 4,                 // 可选：扩散步数 (默认: 4)
-    "width": null,              // 可选：输出图像宽度 (默认: null, ComfyUI 自动处理)
-    "height": null,             // 可选：输出图像高度 (默认: null, ComfyUI 自动处理)
-    "seed": null,               // 可选：随机种子 (默认: null, 自动生成随机数)
-    "cfg": 1.0,                 // 可选：分类器自由引导比例 (默认: 1.0)
-    "sampler_name": "euler_ancestral", // 可选：采样器名称 (默认: "euler_ancestral")
-    "scheduler": "beta"         // 可选：调度器名称 (默认: "beta")
-}
-```
-
-**响应 (JSON)**:
+#### 示例请求
 
 ```json
 {
-    "image_url": "string",      // 生成图像的完整 URL
-    "filename": "string"        // 生成图像的文件名
+  "image1": "http://example.com/input.png",
+  "prompt": "老人，头上开花",
+  "steps": 4,
+  "width": 1024,
+  "height": 1024
 }
 ```
 
-**错误响应**:
+#### 示例响应
 
-*   `400 Bad Request`: 图像加载失败或请求参数无效。
-*   `500 Internal Server Error`: 服务器内部错误或 worker 进程处理失败。
-*   `504 Gateway Timeout`: 图像处理超时。
-
-## 使用示例
-
-```python
-import requests
-import json
-
-api_url = "http://localhost:18002/image-edit"
-
-payload = {
-    "image1": "https://example.com/your_image.jpg", # 替换为您的图像 URL 或本地路径
-    "prompt": "a cat with a hat, highly detailed, fantasy art",
-    "steps": 4,
-    "seed": 12345,
-    "cfg": 7.0,
-    "sampler_name": "dpmpp_2m",
-    "scheduler": "karras"
+```json
+{
+  "status": "success",
+  "image_url": "http://<ip>:18002/outputs/abc-123.png"
 }
-
-headers = {
-    "Content-Type": "application/json"
-}
-
-try:
-    response = requests.post(api_url, data=json.dumps(payload), headers=headers)
-    response.raise_for_status() # 检查 HTTP 错误
-    result = response.json()
-    print("Generated Image URL:", result["image_url"])
-    print("Filename:", result["filename"])
-except requests.exceptions.RequestException as e:
-    print(f"API request failed: {e}")
-    if response is not None:
-        print("Response content:", response.text)
-
 ```
+
+## 开发备注
+
+*   **隔离性**：每个 worker 通过 `CUDA_VISIBLE_DEVICES` 实现设备隔离。
+*   **安全性**：输出图像 Tensor 已执行 `.detach()` 处理，确保转换 Numpy 时不会触发梯度错误。
+*   **监控**：控制台会实时输出 worker 的状态和推理耗时。

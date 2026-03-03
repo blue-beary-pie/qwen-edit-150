@@ -1,0 +1,9 @@
+fastapi==0.124.4
+uvicorn==0.38.0
+requests==2.32.3
+pillow==10.4.0
+numpy==1.26.4
+torch==2.10.0+cu130
+safetensors==0.7.0
+pydantic==2.12.5
+python-dotenv
