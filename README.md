@@ -27,7 +27,6 @@
 ├── .env                # 配置文件（GPU 并发数等）
 ├── requirements.txt    # 项目依赖
 ├── README.md           # 本文档
-└── 需求prompt历史.txt    # 历史需求变更记录
 ```
 
 ## 安装与配置
