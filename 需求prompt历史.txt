@@ -50,4 +50,6 @@ comfyui的地址变为了/mnt/data0/AIGC/story/comfyui_main
 修复 RuntimeError: Can't call numpy() on Tensor that requires grad。在 worker.py 中增加 torch.no_grad() 上下文并使用 .detach() 处理输出 tensor。
 #第十五次更新
 生成并完善详细的 README.md，包含项目概述、核心特性、安装配置、运行指南及 API 使用说明。
+#第十六次更新
+代码上传至 GitHub 仓库：https://github.com/blue-beary-pie/qwen-edit-150.git
 
